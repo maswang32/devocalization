@@ -71,13 +71,23 @@ conv_2s_to_256_256 = MelConverter(hop_length=172, n_mels=256, n_fft=8192, win_le
 
 
 
-def save_mel_spectrograms(wav_load_path, spec_save_path, converter=conv_2s_to_256_256, image_size = 256):
+def save_mel_spectrograms(wav_load_path, spec_save_path, converter=conv_2s_to_256_256, image_size = 256, normalize=True):
+
+    if normalize:
+        print("Normalizing based on Max")
+
     waveforms = torch.from_numpy(np.load(wav_load_path)).to(device)
     n_data = waveforms.shape[0]
     spectrograms = torch.zeros((n_data, image_size, image_size)).to(device)
     
     for i in range(n_data):
-        spectrograms[i] = converter.audio_to_mel(waveforms[i])[:image_size, :image_size]
+
+        waveform = waveforms[i]
+
+        if normalize:
+            waveform = waveform/np.max(np.abs(waveform))
+
+        spectrograms[i] = converter.audio_to_mel(waveform)[:image_size, :image_size]
         if i%100 == 0:
             print(i)
     
