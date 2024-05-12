@@ -35,7 +35,6 @@ class VAE(nn.Module):
         
         self.decoder_input = nn.Linear(latent_dim, hidden_dims[-1]*4)
         hidden_dims.reverse()
-        print(hidden_dims)
         for i in range(len(hidden_dims) - 1):
             decoder_modules.append(
                 nn.Sequential(
@@ -69,9 +68,7 @@ class VAE(nn.Module):
     
     def encode(self, x):
         x = self.encoder(x)
-        print(x.shape)
         x = torch.flatten(x, start_dim=1)
-        print(x.shape)
         mu = self.fc_mu(x)
         log_var = self.fc_var(x)
         return [mu, log_var]
@@ -116,6 +113,7 @@ if __name__=="__main__":
 
     parser = argparse.ArgumentParser()
 
+
     # Save locations
     parser.add_argument("--inputs_path", default = "/viscam/projects/audio_nerf/transfer/devocalization/data/processed_framewise/imitations_spec_256.npy")
     parser.add_argument("--labels_path", default = "/viscam/projects/audio_nerf/transfer/devocalization/data/processed_framewise/reference_spec_256.npy")
@@ -135,10 +133,11 @@ if __name__=="__main__":
 
     # Loading Data, Train/Test Split
     np.random.seed(0)
-    input_data = np.load(args.inputs_path)
-    label_data = np.load(args.labels_path)
-    input_data = torch.from_numpy(input_data).cuda()
-    label_data = torch.from_numpy(label_data).cuda()
+
+    print('Loading Data',flush=True)
+
+    input_data = np.load(args.inputs_path, mmap_mode='r')
+    label_data = np.load(args.labels_path, mmap_mode='r')
 
     print(input_data.dtype, flush=True)
     print(label_data.dtype, flush=True)
@@ -176,16 +175,16 @@ if __name__=="__main__":
 
         print(f"Epoch:\t{epoch}", flush=True)
 
-        train_indices = np.random.shuffle(train_indices)
+        np.random.shuffle(train_indices)
 
         for i in range(N_iters_per_epoch):
             batch_indices = train_indices[i*batch_size:(i+1)*batch_size]
-            inputs = input_data[batch_indices]
-            labels = label_data[batch_indices]
+            inputs = torch.from_numpy(input_data[batch_indices]).cuda()
+            labels = torch.from_numpy(label_data[batch_indices]).cuda()
 
             optimizer.zero_grad()
-            out = model(inputs)
-            loss, to_log = loss_fcn(out, labels)
+            out = model(inputs.unsqueeze(1))
+            loss, to_log = loss_fcn(out, labels.unsqueeze(1))
             loss.backward()
             optimizer.step()
             loss_log.append(to_log)
@@ -202,17 +201,25 @@ if __name__=="__main__":
 
             for i in range(n_valid_batches):
                 valid_batch_indices = valid_indices[i*batch_size:(i+1)*batch_size]
-                out = model.forward(input_data[valid_batch_indices])
+
+                inputs = torch.from_numpy(input_data[valid_batch_indices]).cuda()
+                labels = torch.from_numpy(label_data[valid_batch_indices]).cuda()
+
+                out = model.forward(inputs.unsqueeze(1))
                 predictions = out[0]
-                mse_loss = F.mse_loss(predictions, label_data[valid_batch_indices])
+                mse_loss = F.mse_loss(predictions, labels.unsqueeze(1))
                 valid_loss_list.append(mse_loss.item())
                 weights.append(batch_size)
 
             if n_valid % batch_size != 0:
                 remaining_indices = valid_indices[n_valid_batches * batch_size:]
-                out = model.forward(input_data[remaining_indices])
+
+                inputs = torch.from_numpy(input_data[remaining_indices]).cuda()
+                labels = torch.from_numpy(label_data[remaining_indices]).cuda()
+
+                out = model.forward(inputs.unsqueeze(1))
                 predictions = out[0]
-                mse_loss = F.mse_loss(predictions, label_data[remaining_indices])
+                mse_loss = F.mse_loss(predictions, labels.unsqueeze(1))
                 valid_loss_list.append(mse_loss.item())
                 weights.append(n_valid % batch_size)
 
