@@ -2,3 +2,4 @@ __pycache__/
 data/
 zOld/
 riffusion-inference/
+notebooks/.ipynb_checkpoints
