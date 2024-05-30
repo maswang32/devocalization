@@ -87,6 +87,10 @@ def waveform_to_vae_input(waveform):
     image, max_value = image_from_spectrogram(spectrogram_from_waveform(waveform))
     return preprocess_image(image), max_value
 
+def waveform_to_image(waveform):
+    return image_from_spectrogram(spectrogram_from_waveform(waveform))
+
+
 def spectrogram_from_waveform(waveform):
     waveform_tensor = torch.from_numpy(waveform.astype(np.float32)).to(device)
     spectrogram_complex = spectrogram_func(waveform_tensor)
@@ -122,6 +126,8 @@ def vae_output_to_waveform(decoder_output, pipe, max_value):
     """Full Decoding Pipeline"""
     return waveform_from_spectrogram(spectrogram_from_image(decoder_output_to_image(decoder_output, pipe), max_value=max_value))
 
+def image_to_waveform(image, max_value):
+    return waveform_from_spectrogram(spectrogram_from_image(image, max_value=max_value))
 
 def decoder_output_to_image(decoder_output, pipe):
     image = (decoder_output.detach() / 2 + 0.5).clamp(0, 1)
