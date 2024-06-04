@@ -3,6 +3,8 @@ import torchaudio
 import numpy as np
 from PIL import Image
 import scipy.signal as signal
+import pyreaper
+
 
 device = 'cuda' if torch.cuda.is_available() else 'cpu'
 
@@ -148,10 +150,8 @@ def spectrogram_from_image(image, max_value=30e6, power=0.25):
     return data[0]
 
 
-
-
 # Low pass filter
-fir_coeff = signal.firwin(255, 10000, fs=SAMPLE_RATE)
+fir_coeff = signal.firwin(255, 6000, fs=SAMPLE_RATE)
 
 def waveform_from_spectrogram(mel_amplitudes, filter=True):
     mel_amplitudes_torch = torch.from_numpy(mel_amplitudes).to(device)
@@ -160,3 +160,69 @@ def waveform_from_spectrogram(mel_amplitudes, filter=True):
     waveform = waveform.detach().cpu().numpy()
     waveform = signal.filtfilt(fir_coeff, 1.0, waveform)
     return waveform
+
+
+
+"""
+PROCESSING LENGTH
+"""
+def truncate_real_sound(x, length=253575):
+    if x.shape[-1] == length:
+        return x
+    elif x.shape[-1] < length:
+        result = np.zeros((length))
+        result[x.shape[-1]:] = x
+    elif x.shape[-1] > length:
+        result = x[:length]
+    return result
+
+"""
+GATING
+"""
+TOTAL_LENGTH = 6
+N_TIME_FRAMES = 576
+
+freq_banks = torchaudio.functional.melscale_fbanks(n_freqs=SAMPLE_RATE//2,
+    f_min=F_MIN, f_max=F_MAX, n_mels=N_MELS, sample_rate=SAMPLE_RATE).numpy()
+
+hann_window = torch.hann_window(WIN_LENGTH).numpy()
+time_banks = np.zeros((SAMPLE_RATE*TOTAL_LENGTH, N_TIME_FRAMES)) # 6 seconds, 576 time-frames
+
+
+for i in range(N_TIME_FRAMES):
+    time_banks[i*HOP_LENGTH:i*HOP_LENGTH+WIN_LENGTH, i] = hann_window
+
+def get_freq_bin_activations(freqs):
+    return freq_banks[np.round(freqs).astype(int)]
+
+def get_time_bin_activations(times):
+    return time_banks[np.round(times).astype(int)]
+
+def gen_spectrogram_from_activations(times, freqs):
+    time_bin_activations = np.expand_dims(get_time_bin_activations(times*44100), -2)
+    freq_bin_activations = np.expand_dims(get_freq_bin_activations(freqs), -1)
+    return np.sum(time_bin_activations * freq_bin_activations, axis=0)
+
+
+def gen_harmonic_spectrogram(x, n_freqs=512, n_time_steps=576):
+    x = truncate_real_sound(x)
+    _, _, f0_times, f0_freqs, _ = pyreaper.reaper(np.int16(65536*x), fs=SAMPLE_RATE)
+
+    highest_frequency = np.max(f0_freqs)
+    highest_harmonic = int(F_MAX//highest_frequency)
+    harmonics = np.array([f0_freqs*i for i in range(1,highest_harmonic)])
+
+    spec = np.zeros((512,576))
+    count = 0
+    for harmonic in harmonics:
+        spec += gen_spectrogram_from_activations(f0_times, harmonic)
+        #print(count)
+        count += 1
+    return (spec==0).astype(np.float32)
+
+def gen_gated_spectrogram(x, threshold=0.001):
+    x = truncate_real_sound(x)
+    spectrogram = spectrogram_from_waveform(x)
+    return (spectrogram<np.max(spectrogram)*threshold).astype(np.float32)
+
+
